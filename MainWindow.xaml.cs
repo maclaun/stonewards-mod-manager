@@ -6,6 +6,7 @@ using System.Diagnostics;
 using System.IO;
 using System.IO.Compression;
 using System.Net.Http;
+using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 using System.Windows;
 using Microsoft.Win32;
@@ -100,88 +101,109 @@ namespace StoneWardsModManager
 
             try
             {
-                TxtStatus.Text = "Checking GitHub Releases for mod updates...";
-                string json = await http.GetStringAsync("https://api.github.com/repos/maclaun/stonewards-releases/releases");
-                JArray releases = JArray.Parse(json);
+                TxtStatus.Text = "Fetching point releases and commit versions from GitHub...";
+                
+                // 1. Fetch list of mod files in releases/ directory from public repository
+                string contentsJson = await http.GetStringAsync("https://api.github.com/repos/maclaun/stonewards-releases/contents/releases");
+                JArray filesArray = JArray.Parse(contentsJson);
 
                 var latestModsDict = new Dictionary<string, ModItem>(StringComparer.OrdinalIgnoreCase);
 
-                // GitHub API returns releases sorted newest first.
-                foreach (JObject rel in releases)
+                foreach (JObject fileObj in filesArray)
                 {
-                    string tagName = rel["tag_name"]?.ToString() ?? "v1.0.0";
-                    string body = rel["notes"]?.ToString() ?? rel["body"]?.ToString() ?? "Official StoneWards Mod";
-                    JArray assets = rel["assets"] as JArray ?? new JArray();
-
-                    foreach (JObject asset in assets)
+                    string fileName = fileObj["name"]?.ToString() ?? "";
+                    if (fileName.EndsWith(".dll", StringComparison.OrdinalIgnoreCase))
                     {
-                        string fileName = asset["name"]?.ToString() ?? "";
-                        if (fileName.EndsWith(".dll", StringComparison.OrdinalIgnoreCase))
+                        string modName = Path.GetFileNameWithoutExtension(fileName);
+                        string rawDownloadUrl = fileObj["download_url"]?.ToString() 
+                            ?? $"https://raw.githubusercontent.com/maclaun/stonewards-releases/main/releases/{fileName}";
+
+                        // Fetch point commit version for THIS SPECIFIC MOD FILE
+                        string latestVersion = "v1.0.0";
+                        string commitMessage = "";
+                        try
                         {
-                            string modName = Path.GetFileNameWithoutExtension(fileName);
-                            if (!latestModsDict.ContainsKey(modName))
+                            string commitsJson = await http.GetStringAsync($"https://api.github.com/repos/maclaun/stonewards-releases/commits?path=releases/{fileName}&per_page=1");
+                            JArray commitsArray = JArray.Parse(commitsJson);
+                            if (commitsArray.Count > 0)
                             {
-                                string downloadUrl = asset["browser_download_url"]?.ToString() ?? "";
-                                bool isCore = modName.Equals("StoneWardsITGCore", StringComparison.OrdinalIgnoreCase);
-                                string targetPath = Path.Combine(gameModsDir, fileName);
-                                string disabledPath = targetPath + ".disabled";
-                                bool installed = File.Exists(targetPath) || File.Exists(disabledPath);
-
-                                string installedVersion = "";
-                                string actualFile = File.Exists(targetPath) ? targetPath : (File.Exists(disabledPath) ? disabledPath : null);
-                                if (actualFile != null)
+                                commitMessage = commitsArray[0]["commit"]?["message"]?.ToString() ?? "";
+                                Match match = Regex.Match(commitMessage, @"v?\d+\.\d+\.\d+(\.\d+)?", RegexOptions.IgnoreCase);
+                                if (match.Success)
                                 {
-                                    try
-                                    {
-                                        var vInfo = FileVersionInfo.GetVersionInfo(actualFile);
-                                        installedVersion = vInfo.FileVersion ?? vInfo.ProductVersion ?? "";
-                                        if (!string.IsNullOrEmpty(installedVersion) && !installedVersion.StartsWith("v", StringComparison.OrdinalIgnoreCase))
-                                        {
-                                            installedVersion = "v" + installedVersion;
-                                        }
-                                    }
-                                    catch { }
+                                    latestVersion = match.Value.StartsWith("v", StringComparison.OrdinalIgnoreCase) ? match.Value : "v" + match.Value;
                                 }
-
-                                string cleanTag = tagName.TrimStart('v');
-                                string cleanInstalled = installedVersion.TrimStart('v');
-
-                                bool needsUpdate = false;
-                                if (installed && Version.TryParse(cleanInstalled, out Version? vLocal) && Version.TryParse(cleanTag, out Version? vRemote))
-                                {
-                                    needsUpdate = vLocal < vRemote;
-                                }
-                                else if (installed && !string.IsNullOrEmpty(cleanInstalled) && !string.IsNullOrEmpty(cleanTag))
-                                {
-                                    needsUpdate = !cleanInstalled.StartsWith(cleanTag, StringComparison.OrdinalIgnoreCase) 
-                                               && !cleanTag.StartsWith(cleanInstalled, StringComparison.OrdinalIgnoreCase);
-                                }
-
-                                string description = body;
-                                if (isCore)
-                                {
-                                    description = "Mandatory ITG Core System Mod. Manages all in-game ESC mod settings.";
-                                }
-                                else if (modName.Equals("StoneWardsHD", StringComparison.OrdinalIgnoreCase))
-                                {
-                                    description = "HD graphics, SMAA/TAA anti-aliasing, and anisotropic texture filtering for StoneWards (Unity 6).";
-                                }
-
-                                latestModsDict[modName] = new ModItem
-                                {
-                                    Name = modName,
-                                    Version = tagName,
-                                    InstalledVersion = string.IsNullOrEmpty(installedVersion) ? "Not Installed" : installedVersion,
-                                    Author = "StoneWards Team",
-                                    Description = description,
-                                    IsEnabled = isCore || File.Exists(targetPath),
-                                    IsCoreMod = isCore,
-                                    NeedsUpdate = needsUpdate,
-                                    DownloadUrl = downloadUrl,
-                                    FileName = fileName
-                                };
                             }
                         }
+                        catch { }
+
+                        bool isCore = modName.Equals("StoneWardsITGCore", StringComparison.OrdinalIgnoreCase);
+                        string targetPath = Path.Combine(gameModsDir, fileName);
+                        string disabledPath = targetPath + ".disabled";
+                        bool installed = File.Exists(targetPath) || File.Exists(disabledPath);
+
+                        string installedVersion = "";
+                        string actualFile = File.Exists(targetPath) ? targetPath : (File.Exists(disabledPath) ? disabledPath : null);
+                        if (actualFile != null)
+                        {
+                            try
+                            {
+                                var vInfo = FileVersionInfo.GetVersionInfo(actualFile);
+                                installedVersion = vInfo.FileVersion ?? vInfo.ProductVersion ?? "";
+                                if (!string.IsNullOrEmpty(installedVersion))
+                                {
+                                    int plusIdx = installedVersion.IndexOf('+');
+                                    if (plusIdx > 0) installedVersion = installedVersion.Substring(0, plusIdx);
+                                    if (!installedVersion.StartsWith("v", StringComparison.OrdinalIgnoreCase))
+                                    {
+                                        installedVersion = "v" + installedVersion;
+                                    }
+                                }
+                            }
+                            catch { }
+                        }
+
+                        string cleanTag = latestVersion.TrimStart('v');
+                        string cleanInstalled = installedVersion.TrimStart('v');
+
+                        bool needsUpdate = false;
+                        if (installed && Version.TryParse(cleanInstalled, out Version? vLocal) && Version.TryParse(cleanTag, out Version? vRemote))
+                        {
+                            needsUpdate = vLocal < vRemote;
+                        }
+                        else if (installed && !string.IsNullOrEmpty(cleanInstalled) && !string.IsNullOrEmpty(cleanTag))
+                        {
+                            needsUpdate = !cleanInstalled.StartsWith(cleanTag, StringComparison.OrdinalIgnoreCase) 
+                                       && !cleanTag.StartsWith(cleanInstalled, StringComparison.OrdinalIgnoreCase);
+                        }
+
+                        string description = string.IsNullOrEmpty(commitMessage) ? "Official StoneWards Mod" : commitMessage;
+                        if (isCore)
+                        {
+                            description = "Mandatory ITG Core System Mod. Manages all in-game ESC mod settings.";
+                        }
+                        else if (modName.Equals("StoneWardsHD", StringComparison.OrdinalIgnoreCase))
+                        {
+                            description = "HD graphics, SMAA/TAA anti-aliasing, and anisotropic texture filtering for StoneWards (Unity 6).";
+                        }
+                        else if (modName.Equals("StoneWardsBetterInfo", StringComparison.OrdinalIgnoreCase))
+                        {
+                            description = "Enhanced in-game stats and player info mod by Alan Kertanov.";
+                        }
+
+                        latestModsDict[modName] = new ModItem
+                        {
+                            Name = modName,
+                            Version = latestVersion,
+                            InstalledVersion = string.IsNullOrEmpty(installedVersion) ? "Not Installed" : installedVersion,
+                            Author = isCore ? "StoneWards Team" : (modName.Contains("BetterInfo") ? "Alan Kertanov" : "de7ault & Alan"),
+                            Description = description,
+                            IsEnabled = isCore || File.Exists(targetPath),
+                            IsCoreMod = isCore,
+                            NeedsUpdate = needsUpdate,
+                            DownloadUrl = rawDownloadUrl,
+                            FileName = fileName
+                        };
                     }
                 }
 
@@ -211,11 +233,11 @@ namespace StoneWardsModManager
                     Mods.Add(mod);
                 }
 
-                TxtStatus.Text = $"Latest mods checked: {Mods.Count}";
+                TxtStatus.Text = $"Point releases checked from GitHub commits: {Mods.Count}";
             }
             catch (Exception ex)
             {
-                TxtStatus.Text = $"Error checking releases: {ex.Message}";
+                TxtStatus.Text = $"Error checking point releases: {ex.Message}";
             }
         }
 
