@@ -1,5 +1,5 @@
 using System;
-using System.Collections.ObjectModel;
+using System.Collections.ObservableCollection;
 using System.ComponentModel;
 using System.Diagnostics;
 using System.IO;
@@ -62,11 +62,18 @@ namespace StoneWardsModManager
 
             try
             {
-                TxtStatus.Text = "Загрузка BepInEx 5...";
-                string zipUrl = "https://github.com/BepInEx/BepInEx/releases/download/v5.4.21/BepInEx_x64_5.4.21.0.zip";
+                // Удаляем старые старые инжекторы BepInEx 5 (winhttp.dll / doorstop), так как Unity 6 вылетает от BepInEx 5
+                string winhttp = Path.Combine(gamePath, "winhttp.dll");
+                string winhttpBak = Path.Combine(gamePath, "winhttp.dll.bak");
+                if (File.Exists(winhttp)) File.Delete(winhttp);
+                if (File.Exists(winhttpBak)) File.Delete(winhttpBak);
+
+                TxtStatus.Text = "Загрузка BepInEx 6 (Совместим с Unity 6 / 6000.x)...";
+                string zipUrl = "https://github.com/BepInEx/BepInEx/releases/download/v6.0.0-pre.1/BepInEx_UnityMono_x64_6.0.0-pre.1.zip";
+                
                 byte[] zipBytes = await http.GetByteArrayAsync(zipUrl);
 
-                string tempZip = Path.Combine(Path.GetTempPath(), "BepInEx_temp.zip");
+                string tempZip = Path.Combine(Path.GetTempPath(), "BepInEx6_temp.zip");
                 File.WriteAllBytes(tempZip, zipBytes);
 
                 ZipFile.ExtractToDirectory(tempZip, gamePath, overwriteFiles: true);
@@ -74,8 +81,8 @@ namespace StoneWardsModManager
 
                 Directory.CreateDirectory(Path.Combine(gamePath, "BepInEx", "plugins"));
 
-                TxtStatus.Text = "Статус: BepInEx 5 успешно установлен в папку с игрой!";
-                MessageBox.Show("BepInEx 5 успешно установлен в папку StoneWards!", "Успех", MessageBoxButton.OK, MessageBoxImage.Information);
+                TxtStatus.Text = "Статус: BepInEx 6 (Unity 6) успешно установлен!";
+                MessageBox.Show("BepInEx 6 (для Unity 6) успешно установлен в папку StoneWards!", "Успех", MessageBoxButton.OK, MessageBoxImage.Information);
             }
             catch (Exception ex)
             {
