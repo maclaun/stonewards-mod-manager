@@ -145,7 +145,17 @@ namespace StoneWardsModManager
 
                                 string cleanTag = tagName.TrimStart('v');
                                 string cleanInstalled = installedVersion.TrimStart('v');
-                                bool needsUpdate = installed && !string.IsNullOrEmpty(installedVersion) && !cleanInstalled.Equals(cleanTag, StringComparison.OrdinalIgnoreCase);
+
+                                bool needsUpdate = false;
+                                if (installed && Version.TryParse(cleanInstalled, out Version? vLocal) && Version.TryParse(cleanTag, out Version? vRemote))
+                                {
+                                    needsUpdate = vLocal < vRemote;
+                                }
+                                else if (installed && !string.IsNullOrEmpty(cleanInstalled) && !string.IsNullOrEmpty(cleanTag))
+                                {
+                                    needsUpdate = !cleanInstalled.StartsWith(cleanTag, StringComparison.OrdinalIgnoreCase) 
+                                               && !cleanTag.StartsWith(cleanInstalled, StringComparison.OrdinalIgnoreCase);
+                                }
 
                                 string description = body;
                                 if (isCore)
@@ -181,7 +191,7 @@ namespace StoneWardsModManager
                     Mods.Add(coreMod);
                     latestModsDict.Remove("StoneWardsITGCore");
                     
-                    // Auto-install or update ITGCore if missing
+                    // Auto-install or update ITGCore if missing or outdated
                     string corePath = Path.Combine(gameModsDir, coreMod.FileName);
                     if (!File.Exists(corePath) || coreMod.NeedsUpdate)
                     {
