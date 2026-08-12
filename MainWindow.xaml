@@ -51,7 +51,7 @@
                 <TextBlock Grid.Column="0" Text="Папка с игрой:" VerticalAlignment="Center" FontWeight="SemiBold" Margin="0,0,10,0" Foreground="#E4E4E7"/>
                 <TextBox x:Name="TxtGamePath" Grid.Column="1" VerticalAlignment="Center" Background="#18181B" Foreground="#F4F4F5" BorderBrush="#3F3F46" Padding="6"/>
                 <Button Grid.Column="2" Content="Обзор..." Click="BrowsePath_Click" Margin="10,0,5,0" Padding="12,6" Background="#3F3F46" Foreground="White" BorderThickness="0"/>
-                <Button Grid.Column="3" Content="Установить BepInEx" Click="InstallBepInEx_Click" Margin="5,0,0,0" Padding="12,6" Background="#16A34A" Foreground="White" FontWeight="SemiBold" BorderThickness="0"/>
+                <Button Grid.Column="3" Content="Установить Mod Loader (MelonLoader)" Click="InstallBepInEx_Click" Margin="5,0,0,0" Padding="12,6" Background="#16A34A" Foreground="White" FontWeight="SemiBold" BorderThickness="0"/>
             </Grid>
         </Border>
 
@@ -72,16 +72,23 @@
                           Background="#18181B" Foreground="#F4F4F5" RowBackground="#18181B" AlternatingRowBackground="#27272A" AlternationCount="2"
                           GridLinesVisibility="Horizontal" HorizontalGridLinesBrush="#3F3F46" HeadersVisibility="Column" BorderThickness="0">
                     <DataGrid.Columns>
-                        <DataGridCheckBoxColumn Header="Включен" Binding="{Binding IsEnabled, UpdateSourceTrigger=PropertyChanged}" Width="80"/>
+                        <DataGridTemplateColumn Header="Включен" Width="90">
+                            <DataGridTemplateColumn.CellTemplate>
+                                <DataTemplate>
+                                    <CheckBox IsChecked="{Binding IsEnabled, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" 
+                                              IsEnabled="{Binding IsNotCoreMod}" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                </DataTemplate>
+                            </DataGridTemplateColumn.CellTemplate>
+                        </DataGridTemplateColumn>
                         <DataGridTextColumn Header="Название мода" Binding="{Binding Name}" Width="200" IsReadOnly="True"/>
                         <DataGridTextColumn Header="Версия" Binding="{Binding Version}" Width="90" IsReadOnly="True"/>
                         <DataGridTextColumn Header="Автор" Binding="{Binding Author}" Width="140" IsReadOnly="True"/>
                         <DataGridTextColumn Header="Описание" Binding="{Binding Description}" Width="*" IsReadOnly="True"/>
-                        <DataGridTemplateColumn Header="Действие" Width="130">
+                        <DataGridTemplateColumn Header="Действие" Width="160">
                             <DataGridTemplateColumn.CellTemplate>
                                 <DataTemplate>
-                                    <Button Content="{Binding ActionText}" Click="DownloadOrToggleMod_Click" 
-                                            Background="#0EA5E9" Foreground="White" Padding="8,4" BorderThickness="0" Cursor="Hand"/>
+                                    <Button Content="{Binding ActionText}" Click="DownloadOrToggleMod_Click" IsEnabled="{Binding IsNotCoreMod}"
+                                            Background="{Binding ButtonColor}" Foreground="White" Padding="8,4" BorderThickness="0" Cursor="Hand"/>
                                 </DataTemplate>
                             </DataGridTemplateColumn.CellTemplate>
                         </DataGridTemplateColumn>

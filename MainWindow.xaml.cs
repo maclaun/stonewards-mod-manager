@@ -96,6 +96,7 @@ namespace StoneWardsModManager
         {
             Mods.Clear();
             string gameModsDir = Path.Combine(TxtGamePath.Text, "Mods");
+            Directory.CreateDirectory(gameModsDir);
 
             try
             {
@@ -122,12 +123,13 @@ namespace StoneWardsModManager
                             if (!latestModsDict.ContainsKey(modName))
                             {
                                 string downloadUrl = asset["browser_download_url"]?.ToString() ?? "";
+                                bool isCore = modName.Equals("StoneWardsITGCore", StringComparison.OrdinalIgnoreCase);
                                 bool installed = File.Exists(Path.Combine(gameModsDir, fileName));
 
                                 string description = body;
-                                if (modName.Equals("StoneWardsITGCore", StringComparison.OrdinalIgnoreCase))
+                                if (isCore)
                                 {
-                                    description = "Central In-Game ESC Settings Menu Manager (Required for all mod settings).";
+                                    description = "Mandatory ITG Core System Mod. Manages all in-game ESC mod settings.";
                                 }
                                 else if (modName.Equals("StoneWardsHD", StringComparison.OrdinalIgnoreCase))
                                 {
@@ -140,12 +142,32 @@ namespace StoneWardsModManager
                                     Version = tagName,
                                     Author = "StoneWards Team",
                                     Description = description,
-                                    IsEnabled = installed,
+                                    IsEnabled = isCore || installed,
+                                    IsCoreMod = isCore,
                                     DownloadUrl = downloadUrl,
                                     FileName = fileName
                                 };
                             }
                         }
+                    }
+                }
+
+                // Ensure ITGCore mod appears first in list
+                if (latestModsDict.TryGetValue("StoneWardsITGCore", out var coreMod))
+                {
+                    Mods.Add(coreMod);
+                    latestModsDict.Remove("StoneWardsITGCore");
+                    
+                    // Auto-install ITGCore if missing
+                    string corePath = Path.Combine(gameModsDir, coreMod.FileName);
+                    if (!File.Exists(corePath))
+                    {
+                        try
+                        {
+                            byte[] coreBytes = await http.GetByteArrayAsync(coreMod.DownloadUrl);
+                            File.WriteAllBytes(corePath, coreBytes);
+                        }
+                        catch { }
                     }
                 }
 
@@ -171,7 +193,7 @@ namespace StoneWardsModManager
         {
             var btn = sender as System.Windows.Controls.Button;
             var mod = btn?.DataContext as ModItem;
-            if (mod == null) return;
+            if (mod == null || mod.IsCoreMod) return;
 
             string modsDir = Path.Combine(TxtGamePath.Text, "Mods");
             Directory.CreateDirectory(modsDir);
@@ -252,19 +274,24 @@ namespace StoneWardsModManager
         public string Description { get; set; } = "";
         public string DownloadUrl { get; set; } = "";
         public string FileName { get; set; } = "";
+        public bool IsCoreMod { get; set; } = false;
+
+        public bool IsNotCoreMod => !IsCoreMod;
 
         public bool IsEnabled
         {
-            get => _isEnabled;
+            get => IsCoreMod || _isEnabled;
             set
             {
+                if (IsCoreMod) return;
                 _isEnabled = value;
                 OnPropertyChanged(nameof(IsEnabled));
                 OnPropertyChanged(nameof(ActionText));
             }
         }
 
-        public string ActionText => IsEnabled ? "Disable" : "Download / Enable";
+        public string ActionText => IsCoreMod ? "System Core Mod" : (IsEnabled ? "Disable" : "Download / Enable");
+        public string ButtonColor => IsCoreMod ? "#4B5563" : (IsEnabled ? "#EF4444" : "#0EA5E9");
 
         public event PropertyChangedEventHandler? PropertyChanged;
         protected void OnPropertyChanged(string name) => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
