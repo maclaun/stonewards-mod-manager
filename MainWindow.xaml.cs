@@ -1,5 +1,5 @@
 using System;
-using System.Collections.ObservableCollection;
+using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.Diagnostics;
 using System.IO;
@@ -62,7 +62,7 @@ namespace StoneWardsModManager
 
             try
             {
-                // Удаляем старые старые инжекторы BepInEx 5 (winhttp.dll / doorstop), так как Unity 6 вылетает от BepInEx 5
+                // Удаляем старые инжекторы BepInEx 5 (winhttp.dll / doorstop), так как Unity 6 вылетает от BepInEx 5
                 string winhttp = Path.Combine(gamePath, "winhttp.dll");
                 string winhttpBak = Path.Combine(gamePath, "winhttp.dll.bak");
                 if (File.Exists(winhttp)) File.Delete(winhttp);
