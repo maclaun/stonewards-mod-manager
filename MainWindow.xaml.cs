@@ -9,6 +9,7 @@ using System.Net.Http;
 using System.Threading.Tasks;
 using System.Windows;
 using Microsoft.Win32;
+using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 
 namespace StoneWardsModManager
@@ -17,6 +18,7 @@ namespace StoneWardsModManager
     {
         public ObservableCollection<ModItem> Mods { get; set; } = new ObservableCollection<ModItem>();
         private static readonly HttpClient http = new HttpClient();
+        private Dictionary<string, string> localVersionCache = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
 
         public MainWindow()
         {
@@ -92,11 +94,43 @@ namespace StoneWardsModManager
             }
         }
 
+        private void LoadLocalVersionCache(string gameModsDir)
+        {
+            localVersionCache.Clear();
+            string cacheFile = Path.Combine(gameModsDir, "installed_versions.json");
+            if (File.Exists(cacheFile))
+            {
+                try
+                {
+                    string content = File.ReadAllText(cacheFile);
+                    var dict = JsonConvert.DeserializeObject<Dictionary<string, string>>(content);
+                    if (dict != null)
+                    {
+                        foreach (var kv in dict) localVersionCache[kv.Key] = kv.Value;
+                    }
+                }
+                catch { }
+            }
+        }
+
+        private void SaveLocalVersionCache(string gameModsDir, string modName, string version)
+        {
+            localVersionCache[modName] = version;
+            string cacheFile = Path.Combine(gameModsDir, "installed_versions.json");
+            try
+            {
+                string json = JsonConvert.SerializeObject(localVersionCache, Formatting.Indented);
+                File.WriteAllText(cacheFile, json);
+            }
+            catch { }
+        }
+
         private async void LoadModsList()
         {
             Mods.Clear();
             string gameModsDir = Path.Combine(TxtGamePath.Text, "Mods");
             Directory.CreateDirectory(gameModsDir);
+            LoadLocalVersionCache(gameModsDir);
 
             try
             {
@@ -126,24 +160,34 @@ namespace StoneWardsModManager
                     bool installed = File.Exists(targetPath) || File.Exists(disabledPath);
 
                     string installedVersion = "";
-                    string actualFile = File.Exists(targetPath) ? targetPath : (File.Exists(disabledPath) ? disabledPath : null);
-                    if (actualFile != null)
+                    if (installed)
                     {
-                        try
+                        if (localVersionCache.TryGetValue(name, out var cachedVer) && !string.IsNullOrEmpty(cachedVer))
                         {
-                            var vInfo = FileVersionInfo.GetVersionInfo(actualFile);
-                            installedVersion = vInfo.FileVersion ?? vInfo.ProductVersion ?? "";
-                            if (!string.IsNullOrEmpty(installedVersion))
+                            installedVersion = cachedVer.StartsWith("v", StringComparison.OrdinalIgnoreCase) ? cachedVer : "v" + cachedVer;
+                        }
+                        else
+                        {
+                            string actualFile = File.Exists(targetPath) ? targetPath : (File.Exists(disabledPath) ? disabledPath : null);
+                            if (actualFile != null)
                             {
-                                int plusIdx = installedVersion.IndexOf('+');
-                                if (plusIdx > 0) installedVersion = installedVersion.Substring(0, plusIdx);
-                                if (!installedVersion.StartsWith("v", StringComparison.OrdinalIgnoreCase))
+                                try
                                 {
-                                    installedVersion = "v" + installedVersion;
+                                    var vInfo = FileVersionInfo.GetVersionInfo(actualFile);
+                                    installedVersion = vInfo.FileVersion ?? vInfo.ProductVersion ?? "";
+                                    if (!string.IsNullOrEmpty(installedVersion))
+                                    {
+                                        int plusIdx = installedVersion.IndexOf('+');
+                                        if (plusIdx > 0) installedVersion = installedVersion.Substring(0, plusIdx);
+                                        if (!installedVersion.StartsWith("v", StringComparison.OrdinalIgnoreCase))
+                                        {
+                                            installedVersion = "v" + installedVersion;
+                                        }
+                                    }
                                 }
+                                catch { }
                             }
                         }
-                        catch { }
                     }
 
                     string cleanTag = version.TrimStart('v');
@@ -183,6 +227,7 @@ namespace StoneWardsModManager
                             {
                                 byte[] coreBytes = await http.GetByteArrayAsync(downloadUrl);
                                 File.WriteAllBytes(targetPath, coreBytes);
+                                SaveLocalVersionCache(gameModsDir, name, version);
                                 modItem.NeedsUpdate = false;
                                 modItem.InstalledVersion = version;
                                 modItem.IsEnabled = true;
@@ -228,6 +273,7 @@ namespace StoneWardsModManager
                     if (File.Exists(disabledPath)) File.Delete(disabledPath);
                     File.WriteAllBytes(targetPath, data);
                     
+                    SaveLocalVersionCache(modsDir, mod.Name, mod.Version);
                     mod.NeedsUpdate = false;
                     mod.IsEnabled = true;
                     mod.InstalledVersion = mod.Version;
@@ -250,6 +296,7 @@ namespace StoneWardsModManager
                     TxtStatus.Text = $"Downloading latest mod {mod.Name} ({mod.Version})...";
                     byte[] data = await http.GetByteArrayAsync(mod.DownloadUrl);
                     File.WriteAllBytes(targetPath, data);
+                    SaveLocalVersionCache(modsDir, mod.Name, mod.Version);
                     mod.IsEnabled = true;
                     mod.InstalledVersion = mod.Version;
                     TxtStatus.Text = $"Mod {mod.Name} ({mod.Version}) downloaded and enabled successfully!";
