@@ -33,11 +33,11 @@ namespace StoneWardsModManager
             if (Directory.Exists(defaultPath))
             {
                 TxtGamePath.Text = defaultPath;
-                TxtStatus.Text = $"Статус: Папка с игрой найдена ({defaultPath})";
+                TxtStatus.Text = $"Status: Game path detected ({defaultPath})";
             }
             else
             {
-                TxtStatus.Text = "Статус: Выберите папку с игрой StoneWards";
+                TxtStatus.Text = "Status: Please select your StoneWards game folder";
             }
         }
 
@@ -47,7 +47,7 @@ namespace StoneWardsModManager
             if (dialog.ShowDialog() == true)
             {
                 TxtGamePath.Text = dialog.FolderName;
-                TxtStatus.Text = $"Статус: Выбрана папка {dialog.FolderName}";
+                TxtStatus.Text = $"Status: Selected path {dialog.FolderName}";
             }
         }
 
@@ -56,56 +56,56 @@ namespace StoneWardsModManager
             string gamePath = TxtGamePath.Text;
             if (string.IsNullOrEmpty(gamePath) || !Directory.Exists(gamePath))
             {
-                MessageBox.Show("Пожалуйста, сначала укажите корректную папку с игрой!", "Ошибка", MessageBoxButton.OK, MessageBoxImage.Warning);
+                MessageBox.Show("Please select a valid game folder first!", "Error", MessageBoxButton.OK, MessageBoxImage.Warning);
                 return;
             }
 
             try
             {
-                // Удаляем старые инжекторы BepInEx 5 (winhttp.dll / doorstop), так как Unity 6 вылетает от BepInEx 5
+                // Remove legacy Doorstop winhttp.dll if present to prevent Unity 6 startup crashes
                 string winhttp = Path.Combine(gamePath, "winhttp.dll");
                 string winhttpBak = Path.Combine(gamePath, "winhttp.dll.bak");
                 if (File.Exists(winhttp)) File.Delete(winhttp);
                 if (File.Exists(winhttpBak)) File.Delete(winhttpBak);
 
-                TxtStatus.Text = "Загрузка BepInEx 6 (Совместим с Unity 6 / 6000.x)...";
-                string zipUrl = "https://github.com/BepInEx/BepInEx/releases/download/v6.0.0-pre.1/BepInEx_UnityMono_x64_6.0.0-pre.1.zip";
+                TxtStatus.Text = "Downloading MelonLoader 0.6.5 (Unity 6 Compatible)...";
+                string zipUrl = "https://github.com/LavaGang/MelonLoader/releases/download/v0.6.5/MelonLoader.x64.zip";
                 
                 byte[] zipBytes = await http.GetByteArrayAsync(zipUrl);
 
-                string tempZip = Path.Combine(Path.GetTempPath(), "BepInEx6_temp.zip");
+                string tempZip = Path.Combine(Path.GetTempPath(), "MelonLoader_temp.zip");
                 File.WriteAllBytes(tempZip, zipBytes);
 
                 ZipFile.ExtractToDirectory(tempZip, gamePath, overwriteFiles: true);
                 File.Delete(tempZip);
 
-                Directory.CreateDirectory(Path.Combine(gamePath, "BepInEx", "plugins"));
+                Directory.CreateDirectory(Path.Combine(gamePath, "Mods"));
 
-                TxtStatus.Text = "Статус: BepInEx 6 (Unity 6) успешно установлен!";
-                MessageBox.Show("BepInEx 6 (для Unity 6) успешно установлен в папку StoneWards!", "Успех", MessageBoxButton.OK, MessageBoxImage.Information);
+                TxtStatus.Text = "Status: Mod Loader (MelonLoader 0.6.5) installed successfully!";
+                MessageBox.Show("Mod Loader for Unity 6 installed successfully into StoneWards!", "Success", MessageBoxButton.OK, MessageBoxImage.Information);
             }
             catch (Exception ex)
             {
-                MessageBox.Show($"Ошибка при установке BepInEx: {ex.Message}", "Ошибка", MessageBoxButton.OK, MessageBoxImage.Error);
-                TxtStatus.Text = "Ошибка установки BepInEx";
+                MessageBox.Show($"Error installing Mod Loader: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                TxtStatus.Text = "Mod Loader installation error";
             }
         }
 
         private async void LoadModsList()
         {
             Mods.Clear();
-            string gamePlugins = Path.Combine(TxtGamePath.Text, "BepInEx", "plugins");
+            string gameModsDir = Path.Combine(TxtGamePath.Text, "Mods");
 
             try
             {
-                TxtStatus.Text = "Загрузка списка модов с GitHub...";
+                TxtStatus.Text = "Fetching available mods from GitHub Releases...";
                 string json = await http.GetStringAsync("https://api.github.com/repos/maclaun/stonewards-addons/releases");
                 JArray releases = JArray.Parse(json);
 
                 foreach (JObject rel in releases)
                 {
                     string tagName = rel["tag_name"]?.ToString() ?? "v1.0.0";
-                    string body = rel["notes"]?.ToString() ?? rel["body"]?.ToString() ?? "Официальный мод StoneWards";
+                    string body = rel["notes"]?.ToString() ?? rel["body"]?.ToString() ?? "Official StoneWards Mod";
                     JArray assets = rel["assets"] as JArray ?? new JArray();
 
                     foreach (JObject asset in assets)
@@ -114,7 +114,7 @@ namespace StoneWardsModManager
                         if (fileName.EndsWith(".dll", StringComparison.OrdinalIgnoreCase))
                         {
                             string downloadUrl = asset["browser_download_url"]?.ToString() ?? "";
-                            bool installed = File.Exists(Path.Combine(gamePlugins, fileName));
+                            bool installed = File.Exists(Path.Combine(gameModsDir, fileName));
 
                             Mods.Add(new ModItem
                             {
@@ -130,11 +130,11 @@ namespace StoneWardsModManager
                     }
                 }
 
-                TxtStatus.Text = $"Загружено доступных модов с GitHub: {Mods.Count}";
+                TxtStatus.Text = $"Available mods fetched from GitHub: {Mods.Count}";
             }
             catch (Exception ex)
             {
-                TxtStatus.Text = $"Ошибка получения релизов с GitHub: {ex.Message}";
+                TxtStatus.Text = $"Error fetching releases from GitHub: {ex.Message}";
             }
         }
 
@@ -149,36 +149,36 @@ namespace StoneWardsModManager
             var mod = btn?.DataContext as ModItem;
             if (mod == null) return;
 
-            string pluginsDir = Path.Combine(TxtGamePath.Text, "BepInEx", "plugins");
-            Directory.CreateDirectory(pluginsDir);
-            string targetPath = Path.Combine(pluginsDir, mod.FileName);
+            string modsDir = Path.Combine(TxtGamePath.Text, "Mods");
+            Directory.CreateDirectory(modsDir);
+            string targetPath = Path.Combine(modsDir, mod.FileName);
             string disabledPath = targetPath + ".disabled";
 
             if (!File.Exists(targetPath) && !File.Exists(disabledPath))
             {
                 try
                 {
-                    TxtStatus.Text = $"Загрузка мода {mod.Name} с GitHub Releases...";
+                    TxtStatus.Text = $"Downloading mod {mod.Name} from GitHub Releases...";
                     byte[] data = await http.GetByteArrayAsync(mod.DownloadUrl);
                     File.WriteAllBytes(targetPath, data);
                     mod.IsEnabled = true;
-                    TxtStatus.Text = $"Мод {mod.Name} успешно скачан и включен!";
-                    MessageBox.Show($"Мод {mod.Name} успешно установлен в BepInEx/plugins!", "Успех", MessageBoxButton.OK, MessageBoxImage.Information);
+                    TxtStatus.Text = $"Mod {mod.Name} downloaded and enabled successfully!";
+                    MessageBox.Show($"Mod {mod.Name} installed successfully into Mods folder!", "Success", MessageBoxButton.OK, MessageBoxImage.Information);
                 }
                 catch (Exception ex)
                 {
-                    MessageBox.Show($"Ошибка загрузки мода: {ex.Message}", "Ошибка", MessageBoxButton.OK, MessageBoxImage.Error);
+                    MessageBox.Show($"Error downloading mod: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
                 }
             }
             else
             {
-                // Включение / Выключение мода (переименование в .disabled)
+                // Toggle Mod (Rename to .disabled)
                 if (mod.IsEnabled)
                 {
                     if (File.Exists(disabledPath)) File.Delete(disabledPath);
                     if (File.Exists(targetPath)) File.Move(targetPath, disabledPath);
                     mod.IsEnabled = false;
-                    TxtStatus.Text = $"Мод {mod.Name} отключен.";
+                    TxtStatus.Text = $"Mod {mod.Name} disabled.";
                 }
                 else
                 {
@@ -188,7 +188,7 @@ namespace StoneWardsModManager
                         File.Move(disabledPath, targetPath);
                     }
                     mod.IsEnabled = true;
-                    TxtStatus.Text = $"Мод {mod.Name} включен.";
+                    TxtStatus.Text = $"Mod {mod.Name} enabled.";
                 }
             }
         }
@@ -198,7 +198,7 @@ namespace StoneWardsModManager
             string exePath = Path.Combine(TxtGamePath.Text, "Stonewards.exe");
             if (!File.Exists(exePath))
             {
-                MessageBox.Show("Файл Stonewards.exe не найден в указанной папке!", "Ошибка запуска", MessageBoxButton.OK, MessageBoxImage.Error);
+                MessageBox.Show("Stonewards.exe not found in the specified game directory!", "Launch Error", MessageBoxButton.OK, MessageBoxImage.Error);
                 return;
             }
 
@@ -210,11 +210,11 @@ namespace StoneWardsModManager
                     WorkingDirectory = TxtGamePath.Text,
                     UseShellExecute = true
                 });
-                TxtStatus.Text = "Игра StoneWards запущена!";
+                TxtStatus.Text = "StoneWards launched!";
             }
             catch (Exception ex)
             {
-                MessageBox.Show($"Ошибка при запуске игры: {ex.Message}", "Ошибка", MessageBoxButton.OK, MessageBoxImage.Error);
+                MessageBox.Show($"Error launching game: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
             }
         }
     }
@@ -240,7 +240,7 @@ namespace StoneWardsModManager
             }
         }
 
-        public string ActionText => IsEnabled ? "Выключить" : "Скачать / Включить";
+        public string ActionText => IsEnabled ? "Disable" : "Download / Enable";
 
         public event PropertyChangedEventHandler? PropertyChanged;
         protected void OnPropertyChanged(string name) => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
