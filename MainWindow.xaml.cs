@@ -87,61 +87,48 @@ namespace StoneWardsModManager
         private async void LoadModsList()
         {
             Mods.Clear();
-
-            // Мод StoneWardsHD (локальный и из GitHub)
             string gamePlugins = Path.Combine(TxtGamePath.Text, "BepInEx", "plugins");
-            bool isInstalled = File.Exists(Path.Combine(gamePlugins, "StoneWardsHD.dll"));
 
-            Mods.Add(new ModItem
-            {
-                Name = "StoneWardsHD",
-                Version = "1.0.0",
-                Author = "de7ault & Alan Kertanov",
-                Description = "Устранение мыла и пикселей, SMAA/TAA сглаживание и анизотропная фильтрация URP",
-                IsEnabled = isInstalled,
-                DownloadUrl = "https://github.com/maclaun/stonewards-addons/raw/main/StoneWardsHD/bin/Debug/netstandard2.1/StoneWardsHD.dll",
-                FileName = "StoneWardsHD.dll"
-            });
-
-            // Запрос дополнительных релизов с GitHub API
             try
             {
+                TxtStatus.Text = "Загрузка списка модов с GitHub...";
                 string json = await http.GetStringAsync("https://api.github.com/repos/maclaun/stonewards-addons/releases");
                 JArray releases = JArray.Parse(json);
 
                 foreach (JObject rel in releases)
                 {
-                    string tagName = rel["tag_name"]?.ToString() ?? "v1.0";
+                    string tagName = rel["tag_name"]?.ToString() ?? "v1.0.0";
+                    string body = rel["notes"]?.ToString() ?? rel["body"]?.ToString() ?? "Официальный мод StoneWards";
                     JArray assets = rel["assets"] as JArray ?? new JArray();
 
                     foreach (JObject asset in assets)
                     {
-                        string name = asset["name"]?.ToString() ?? "";
-                        if (name.EndsWith(".dll"))
+                        string fileName = asset["name"]?.ToString() ?? "";
+                        if (fileName.EndsWith(".dll", StringComparison.OrdinalIgnoreCase))
                         {
                             string downloadUrl = asset["browser_download_url"]?.ToString() ?? "";
-                            bool installed = File.Exists(Path.Combine(gamePlugins, name));
+                            bool installed = File.Exists(Path.Combine(gamePlugins, fileName));
 
                             Mods.Add(new ModItem
                             {
-                                Name = Path.GetFileNameWithoutExtension(name),
+                                Name = Path.GetFileNameWithoutExtension(fileName),
                                 Version = tagName,
-                                Author = "Community",
-                                Description = "Модификация из релиза GitHub",
+                                Author = "StoneWards Team",
+                                Description = body,
                                 IsEnabled = installed,
                                 DownloadUrl = downloadUrl,
-                                FileName = name
+                                FileName = fileName
                             });
                         }
                     }
                 }
-            }
-            catch
-            {
-                // Игнорируем отсутствие публичных релизов на GitHub на начальном этапе
-            }
 
-            TxtStatus.Text = $"Загружено модов в список: {Mods.Count}";
+                TxtStatus.Text = $"Загружено доступных модов с GitHub: {Mods.Count}";
+            }
+            catch (Exception ex)
+            {
+                TxtStatus.Text = $"Ошибка получения релизов с GitHub: {ex.Message}";
+            }
         }
 
         private void RefreshMods_Click(object sender, RoutedEventArgs e)
@@ -158,16 +145,18 @@ namespace StoneWardsModManager
             string pluginsDir = Path.Combine(TxtGamePath.Text, "BepInEx", "plugins");
             Directory.CreateDirectory(pluginsDir);
             string targetPath = Path.Combine(pluginsDir, mod.FileName);
+            string disabledPath = targetPath + ".disabled";
 
-            if (!File.Exists(targetPath))
+            if (!File.Exists(targetPath) && !File.Exists(disabledPath))
             {
                 try
                 {
-                    TxtStatus.Text = $"Загрузка мода {mod.Name}...";
+                    TxtStatus.Text = $"Загрузка мода {mod.Name} с GitHub Releases...";
                     byte[] data = await http.GetByteArrayAsync(mod.DownloadUrl);
                     File.WriteAllBytes(targetPath, data);
                     mod.IsEnabled = true;
                     TxtStatus.Text = $"Мод {mod.Name} успешно скачан и включен!";
+                    MessageBox.Show($"Мод {mod.Name} успешно установлен в BepInEx/plugins!", "Успех", MessageBoxButton.OK, MessageBoxImage.Information);
                 }
                 catch (Exception ex)
                 {
@@ -177,11 +166,10 @@ namespace StoneWardsModManager
             else
             {
                 // Включение / Выключение мода (переименование в .disabled)
-                string disabledPath = targetPath + ".disabled";
                 if (mod.IsEnabled)
                 {
                     if (File.Exists(disabledPath)) File.Delete(disabledPath);
-                    File.Move(targetPath, disabledPath);
+                    if (File.Exists(targetPath)) File.Move(targetPath, disabledPath);
                     mod.IsEnabled = false;
                     TxtStatus.Text = $"Мод {mod.Name} отключен.";
                 }
