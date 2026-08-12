@@ -100,14 +100,13 @@ namespace StoneWardsModManager
 
             try
             {
-                TxtStatus.Text = "Fetching latest mod versions from GitHub Releases...";
+                TxtStatus.Text = "Checking GitHub Releases for mod updates...";
                 string json = await http.GetStringAsync("https://api.github.com/repos/maclaun/stonewards-releases/releases");
                 JArray releases = JArray.Parse(json);
 
                 var latestModsDict = new Dictionary<string, ModItem>(StringComparer.OrdinalIgnoreCase);
 
                 // GitHub API returns releases sorted newest first.
-                // We pick the FIRST occurrence of each mod .dll to guarantee the LATEST release version is displayed!
                 foreach (JObject rel in releases)
                 {
                     string tagName = rel["tag_name"]?.ToString() ?? "v1.0.0";
@@ -124,7 +123,29 @@ namespace StoneWardsModManager
                             {
                                 string downloadUrl = asset["browser_download_url"]?.ToString() ?? "";
                                 bool isCore = modName.Equals("StoneWardsITGCore", StringComparison.OrdinalIgnoreCase);
-                                bool installed = File.Exists(Path.Combine(gameModsDir, fileName));
+                                string targetPath = Path.Combine(gameModsDir, fileName);
+                                string disabledPath = targetPath + ".disabled";
+                                bool installed = File.Exists(targetPath) || File.Exists(disabledPath);
+
+                                string installedVersion = "";
+                                string actualFile = File.Exists(targetPath) ? targetPath : (File.Exists(disabledPath) ? disabledPath : null);
+                                if (actualFile != null)
+                                {
+                                    try
+                                    {
+                                        var vInfo = FileVersionInfo.GetVersionInfo(actualFile);
+                                        installedVersion = vInfo.FileVersion ?? vInfo.ProductVersion ?? "";
+                                        if (!string.IsNullOrEmpty(installedVersion) && !installedVersion.StartsWith("v", StringComparison.OrdinalIgnoreCase))
+                                        {
+                                            installedVersion = "v" + installedVersion;
+                                        }
+                                    }
+                                    catch { }
+                                }
+
+                                string cleanTag = tagName.TrimStart('v');
+                                string cleanInstalled = installedVersion.TrimStart('v');
+                                bool needsUpdate = installed && !string.IsNullOrEmpty(installedVersion) && !cleanInstalled.Equals(cleanTag, StringComparison.OrdinalIgnoreCase);
 
                                 string description = body;
                                 if (isCore)
@@ -140,10 +161,12 @@ namespace StoneWardsModManager
                                 {
                                     Name = modName,
                                     Version = tagName,
+                                    InstalledVersion = string.IsNullOrEmpty(installedVersion) ? "Not Installed" : installedVersion,
                                     Author = "StoneWards Team",
                                     Description = description,
-                                    IsEnabled = isCore || installed,
+                                    IsEnabled = isCore || File.Exists(targetPath),
                                     IsCoreMod = isCore,
+                                    NeedsUpdate = needsUpdate,
                                     DownloadUrl = downloadUrl,
                                     FileName = fileName
                                 };
@@ -158,14 +181,16 @@ namespace StoneWardsModManager
                     Mods.Add(coreMod);
                     latestModsDict.Remove("StoneWardsITGCore");
                     
-                    // Auto-install ITGCore if missing
+                    // Auto-install or update ITGCore if missing
                     string corePath = Path.Combine(gameModsDir, coreMod.FileName);
-                    if (!File.Exists(corePath))
+                    if (!File.Exists(corePath) || coreMod.NeedsUpdate)
                     {
                         try
                         {
                             byte[] coreBytes = await http.GetByteArrayAsync(coreMod.DownloadUrl);
                             File.WriteAllBytes(corePath, coreBytes);
+                            coreMod.NeedsUpdate = false;
+                            coreMod.InstalledVersion = coreMod.Version;
                         }
                         catch { }
                     }
@@ -176,11 +201,11 @@ namespace StoneWardsModManager
                     Mods.Add(mod);
                 }
 
-                TxtStatus.Text = $"Latest mods loaded from GitHub: {Mods.Count}";
+                TxtStatus.Text = $"Latest mods checked: {Mods.Count}";
             }
             catch (Exception ex)
             {
-                TxtStatus.Text = $"Error fetching releases from GitHub: {ex.Message}";
+                TxtStatus.Text = $"Error checking releases: {ex.Message}";
             }
         }
 
@@ -200,14 +225,40 @@ namespace StoneWardsModManager
             string targetPath = Path.Combine(modsDir, mod.FileName);
             string disabledPath = targetPath + ".disabled";
 
+            // Update scenario
+            if (mod.NeedsUpdate)
+            {
+                try
+                {
+                    TxtStatus.Text = $"Updating mod {mod.Name} to {mod.Version}...";
+                    byte[] data = await http.GetByteArrayAsync(mod.DownloadUrl);
+                    if (File.Exists(disabledPath)) File.Delete(disabledPath);
+                    File.WriteAllBytes(targetPath, data);
+                    
+                    mod.NeedsUpdate = false;
+                    mod.IsEnabled = true;
+                    mod.InstalledVersion = mod.Version;
+                    TxtStatus.Text = $"Mod {mod.Name} updated successfully to {mod.Version}!";
+                    MessageBox.Show($"Mod {mod.Name} updated successfully to {mod.Version}!", "Update Complete", MessageBoxButton.OK, MessageBoxImage.Information);
+                    return;
+                }
+                catch (Exception ex)
+                {
+                    MessageBox.Show($"Error updating mod: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                    return;
+                }
+            }
+
+            // Download scenario
             if (!File.Exists(targetPath) && !File.Exists(disabledPath))
             {
                 try
                 {
-                    TxtStatus.Text = $"Downloading latest mod {mod.Name} ({mod.Version}) from GitHub Releases...";
+                    TxtStatus.Text = $"Downloading latest mod {mod.Name} ({mod.Version})...";
                     byte[] data = await http.GetByteArrayAsync(mod.DownloadUrl);
                     File.WriteAllBytes(targetPath, data);
                     mod.IsEnabled = true;
+                    mod.InstalledVersion = mod.Version;
                     TxtStatus.Text = $"Mod {mod.Name} ({mod.Version}) downloaded and enabled successfully!";
                     MessageBox.Show($"Mod {mod.Name} ({mod.Version}) installed successfully into Mods folder!", "Success", MessageBoxButton.OK, MessageBoxImage.Information);
                 }
@@ -268,6 +319,9 @@ namespace StoneWardsModManager
     public class ModItem : INotifyPropertyChanged
     {
         private bool _isEnabled;
+        private bool _needsUpdate;
+        private string _installedVersion = "";
+
         public string Name { get; set; } = "";
         public string Version { get; set; } = "";
         public string Author { get; set; } = "";
@@ -275,6 +329,28 @@ namespace StoneWardsModManager
         public string DownloadUrl { get; set; } = "";
         public string FileName { get; set; } = "";
         public bool IsCoreMod { get; set; } = false;
+
+        public string InstalledVersion
+        {
+            get => _installedVersion;
+            set
+            {
+                _installedVersion = value;
+                OnPropertyChanged(nameof(InstalledVersion));
+            }
+        }
+
+        public bool NeedsUpdate
+        {
+            get => _needsUpdate;
+            set
+            {
+                _needsUpdate = value;
+                OnPropertyChanged(nameof(NeedsUpdate));
+                OnPropertyChanged(nameof(ActionText));
+                OnPropertyChanged(nameof(ButtonColor));
+            }
+        }
 
         public bool IsNotCoreMod => !IsCoreMod;
 
@@ -287,11 +363,29 @@ namespace StoneWardsModManager
                 _isEnabled = value;
                 OnPropertyChanged(nameof(IsEnabled));
                 OnPropertyChanged(nameof(ActionText));
+                OnPropertyChanged(nameof(ButtonColor));
             }
         }
 
-        public string ActionText => IsCoreMod ? "System Core Mod" : (IsEnabled ? "Disable" : "Download / Enable");
-        public string ButtonColor => IsCoreMod ? "#4B5563" : (IsEnabled ? "#EF4444" : "#0EA5E9");
+        public string ActionText
+        {
+            get
+            {
+                if (IsCoreMod) return "System Core Mod";
+                if (NeedsUpdate) return $"🔄 Update ({Version})";
+                return IsEnabled ? "Disable" : "Download / Enable";
+            }
+        }
+
+        public string ButtonColor
+        {
+            get
+            {
+                if (IsCoreMod) return "#4B5563";
+                if (NeedsUpdate) return "#F59E0B"; // Bright Amber for Updates!
+                return IsEnabled ? "#EF4444" : "#0EA5E9";
+            }
+        }
 
         public event PropertyChangedEventHandler? PropertyChanged;
         protected void OnPropertyChanged(string name) => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
