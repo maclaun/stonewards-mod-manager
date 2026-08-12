@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.Diagnostics;
@@ -98,10 +99,14 @@ namespace StoneWardsModManager
 
             try
             {
-                TxtStatus.Text = "Fetching available mods from GitHub Releases...";
+                TxtStatus.Text = "Fetching latest mod versions from GitHub Releases...";
                 string json = await http.GetStringAsync("https://api.github.com/repos/maclaun/stonewards-releases/releases");
                 JArray releases = JArray.Parse(json);
 
+                var latestModsDict = new Dictionary<string, ModItem>(StringComparer.OrdinalIgnoreCase);
+
+                // GitHub API returns releases sorted newest first.
+                // We pick the FIRST occurrence of each mod .dll to guarantee the LATEST release version is displayed!
                 foreach (JObject rel in releases)
                 {
                     string tagName = rel["tag_name"]?.ToString() ?? "v1.0.0";
@@ -113,32 +118,43 @@ namespace StoneWardsModManager
                         string fileName = asset["name"]?.ToString() ?? "";
                         if (fileName.EndsWith(".dll", StringComparison.OrdinalIgnoreCase))
                         {
-                            string downloadUrl = asset["browser_download_url"]?.ToString() ?? "";
-                            bool installed = File.Exists(Path.Combine(gameModsDir, fileName));
-
                             string modName = Path.GetFileNameWithoutExtension(fileName);
-                            string description = body;
-
-                            if (modName.Equals("StoneWardsITGCore", StringComparison.OrdinalIgnoreCase))
+                            if (!latestModsDict.ContainsKey(modName))
                             {
-                                description = "Central In-Game ESC Settings Menu Manager (Required for all mod settings).";
+                                string downloadUrl = asset["browser_download_url"]?.ToString() ?? "";
+                                bool installed = File.Exists(Path.Combine(gameModsDir, fileName));
+
+                                string description = body;
+                                if (modName.Equals("StoneWardsITGCore", StringComparison.OrdinalIgnoreCase))
+                                {
+                                    description = "Central In-Game ESC Settings Menu Manager (Required for all mod settings).";
+                                }
+                                else if (modName.Equals("StoneWardsHD", StringComparison.OrdinalIgnoreCase))
+                                {
+                                    description = "HD graphics, SMAA/TAA anti-aliasing, and anisotropic texture filtering for StoneWards (Unity 6).";
+                                }
+
+                                latestModsDict[modName] = new ModItem
+                                {
+                                    Name = modName,
+                                    Version = tagName,
+                                    Author = "StoneWards Team",
+                                    Description = description,
+                                    IsEnabled = installed,
+                                    DownloadUrl = downloadUrl,
+                                    FileName = fileName
+                                };
                             }
-
-                            Mods.Add(new ModItem
-                            {
-                                Name = modName,
-                                Version = tagName,
-                                Author = "StoneWards Team",
-                                Description = description,
-                                IsEnabled = installed,
-                                DownloadUrl = downloadUrl,
-                                FileName = fileName
-                            });
                         }
                     }
                 }
 
-                TxtStatus.Text = $"Available mods fetched from GitHub: {Mods.Count}";
+                foreach (var mod in latestModsDict.Values)
+                {
+                    Mods.Add(mod);
+                }
+
+                TxtStatus.Text = $"Latest mods loaded from GitHub: {Mods.Count}";
             }
             catch (Exception ex)
             {
@@ -166,12 +182,12 @@ namespace StoneWardsModManager
             {
                 try
                 {
-                    TxtStatus.Text = $"Downloading mod {mod.Name} from GitHub Releases...";
+                    TxtStatus.Text = $"Downloading latest mod {mod.Name} ({mod.Version}) from GitHub Releases...";
                     byte[] data = await http.GetByteArrayAsync(mod.DownloadUrl);
                     File.WriteAllBytes(targetPath, data);
                     mod.IsEnabled = true;
-                    TxtStatus.Text = $"Mod {mod.Name} downloaded and enabled successfully!";
-                    MessageBox.Show($"Mod {mod.Name} installed successfully into Mods folder!", "Success", MessageBoxButton.OK, MessageBoxImage.Information);
+                    TxtStatus.Text = $"Mod {mod.Name} ({mod.Version}) downloaded and enabled successfully!";
+                    MessageBox.Show($"Mod {mod.Name} ({mod.Version}) installed successfully into Mods folder!", "Success", MessageBoxButton.OK, MessageBoxImage.Information);
                 }
                 catch (Exception ex)
                 {
