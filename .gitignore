@@ -1,0 +1,11 @@
+# Visual Studio & IDEs
+.vs/
+.idea/
+*.user
+*.userprefs
+*.suo
+
+# Build outputs
+[Bb]in/
+[Oo]bj/
+*.log
