@@ -99,7 +99,7 @@ namespace StoneWardsModManager
             try
             {
                 TxtStatus.Text = "Fetching available mods from GitHub Releases...";
-                string json = await http.GetStringAsync("https://api.github.com/repos/maclaun/stonewards-addons/releases");
+                string json = await http.GetStringAsync("https://api.github.com/repos/maclaun/stonewards-releases/releases");
                 JArray releases = JArray.Parse(json);
 
                 foreach (JObject rel in releases)
@@ -128,6 +128,23 @@ namespace StoneWardsModManager
                             });
                         }
                     }
+                }
+
+                // Fallback: If no releases exist yet, fetch direct .dll links from main branch of releases repo
+                if (Mods.Count == 0)
+                {
+                    string rawUrl = "https://raw.githubusercontent.com/maclaun/stonewards-releases/main/releases/StoneWardsHD.dll";
+                    bool installed = File.Exists(Path.Combine(gameModsDir, "StoneWardsHD.dll"));
+                    Mods.Add(new ModItem
+                    {
+                        Name = "StoneWardsHD",
+                        Version = "v1.0.0",
+                        Author = "de7ault & Alan Kertanov",
+                        Description = "HD graphics, SMAA/TAA anti-aliasing, and anisotropic texture filtering for StoneWards (Unity 6).",
+                        IsEnabled = installed,
+                        DownloadUrl = rawUrl,
+                        FileName = "StoneWardsHD.dll"
+                    });
                 }
 
                 TxtStatus.Text = $"Available mods fetched from GitHub: {Mods.Count}";
