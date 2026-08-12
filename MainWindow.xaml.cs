@@ -116,35 +116,26 @@ namespace StoneWardsModManager
                             string downloadUrl = asset["browser_download_url"]?.ToString() ?? "";
                             bool installed = File.Exists(Path.Combine(gameModsDir, fileName));
 
+                            string modName = Path.GetFileNameWithoutExtension(fileName);
+                            string description = body;
+
+                            if (modName.Equals("StoneWardsITGCore", StringComparison.OrdinalIgnoreCase))
+                            {
+                                description = "Central In-Game ESC Settings Menu Manager (Required for all mod settings).";
+                            }
+
                             Mods.Add(new ModItem
                             {
-                                Name = Path.GetFileNameWithoutExtension(fileName),
+                                Name = modName,
                                 Version = tagName,
                                 Author = "StoneWards Team",
-                                Description = body,
+                                Description = description,
                                 IsEnabled = installed,
                                 DownloadUrl = downloadUrl,
                                 FileName = fileName
                             });
                         }
                     }
-                }
-
-                // Fallback: If no releases exist yet, fetch direct .dll links from main branch of releases repo
-                if (Mods.Count == 0)
-                {
-                    string rawUrl = "https://raw.githubusercontent.com/maclaun/stonewards-releases/main/releases/StoneWardsHD.dll";
-                    bool installed = File.Exists(Path.Combine(gameModsDir, "StoneWardsHD.dll"));
-                    Mods.Add(new ModItem
-                    {
-                        Name = "StoneWardsHD",
-                        Version = "v1.0.0",
-                        Author = "de7ault & Alan Kertanov",
-                        Description = "HD graphics, SMAA/TAA anti-aliasing, and anisotropic texture filtering for StoneWards (Unity 6).",
-                        IsEnabled = installed,
-                        DownloadUrl = rawUrl,
-                        FileName = "StoneWardsHD.dll"
-                    });
                 }
 
                 TxtStatus.Text = $"Available mods fetched from GitHub: {Mods.Count}";
